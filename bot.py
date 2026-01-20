@@ -454,7 +454,7 @@ class WisdomBotWithButtons:
             response += f"🏷️ Категория: <b>{quote['category']}</b>\n"
         
         # Добавляем статистику использования
-        if quote['used_count'] > 0:
+        if quote.get('used_count', 0) > 0:
             response += f"📊 Использовалась: {quote['used_count']} раз\n"
         
         response += f"\n🆔 ID: {quote['id']}"

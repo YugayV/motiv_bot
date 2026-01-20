@@ -200,6 +200,7 @@ class QuoteDatabase:
             self.conn.commit()
             
             quote_data['id'] = quote_id
+            quote_data['used_count'] = 0
             print(f"✅ AI quote saved with ID: {quote_id}")
             
             return quote_data
