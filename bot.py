@@ -299,8 +299,10 @@ class WisdomBotWithButtons:
         
         # Назад в меню
         elif data == 'back_to_main':
-            await query.edit_message_text(
-                "🏠 *Главное меню:*\nВыберите действие:",
+            await query.delete_message()
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="🏠 *Главное меню:*\nВыберите действие:",
                 parse_mode='Markdown',
                 reply_markup=get_main_keyboard()
             )
