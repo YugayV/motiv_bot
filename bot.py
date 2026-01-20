@@ -57,9 +57,11 @@ class WisdomBotWithButtons:
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /start"""
-        user = update.effective_user
-        welcome_text = f"""
-👋 Привет, {user.first_name}!
+        # Если приватный чат - приветствие + меню
+        if update.effective_chat and update.effective_chat.type == 'private':
+            user = update.effective_user
+            welcome_text = f"""
+👋 Привет, {user.first_name if user else 'друг'}!
 
 Я — *Wisdom Daily Bot* 🤖
 Я публикую мудрые цитаты великих людей каждые 12 часов.
@@ -78,12 +80,19 @@ class WisdomBotWithButtons:
 /help - помощь
 
 👇 *Выбирай действие:*"""
-        
-        await update.message.reply_text(
-            welcome_text, 
-            parse_mode='Markdown',
-            reply_markup=get_main_keyboard()
-        )
+            
+            await update.message.reply_text(
+                welcome_text, 
+                parse_mode='Markdown',
+                reply_markup=get_main_keyboard()
+            )
+            
+            # И сразу цитату
+            await self.handle_random_quote_button(update, context)
+            
+        else:
+            # В группе/канале только цитату
+            await self.handle_random_quote_button(update, context)
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /help"""
@@ -118,7 +127,7 @@ class WisdomBotWithButtons:
     
     async def handle_random_quote_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка нажатия кнопки "Случайная цитата" """
-        user_id = update.effective_user.id
+        user_id = update.effective_user.id if update.effective_user else 0
         
         # Получаем случайную цитату
         quote = self.db.get_random_quote_for_button()
