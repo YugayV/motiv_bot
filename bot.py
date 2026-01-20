@@ -1,8 +1,6 @@
 import os
 import logging
-import schedule
-import time
-import threading
+
 from datetime import datetime
 from telegram import Update, Bot
 from telegram.ext import (
@@ -48,7 +46,8 @@ class WisdomBotWithButtons:
         if not self.token:
             raise ValueError("BOT_TOKEN не установлен в .env файле")
         
-        self.bot = Bot(token=self.token)
+        # self.bot удален, так как Application создает своего бота
+        # self.bot = Bot(token=self.token)
         self.db = QuoteDatabase()
         
         # Состояния пользователей (для поиска)
@@ -411,7 +410,7 @@ class WisdomBotWithButtons:
         text = update.message.text
         
         if text == "📤 Опубликовать сейчас":
-            success = await self.post_to_channel_manual()
+            success = await self.post_to_channel_manual(context.bot)
             if success:
                 await update.message.reply_text(
                     "✅ Цитата опубликована в канале!",
@@ -456,7 +455,7 @@ class WisdomBotWithButtons:
         
         return response
     
-    async def post_to_channel_manual(self):
+    async def post_to_channel_manual(self, bot: Bot):
         """Ручная публикация в канал (для админа)"""
         try:
             quote = self.db.get_next_quote()
@@ -475,7 +474,7 @@ class WisdomBotWithButtons:
 🕰 {datetime.now().strftime('%H:%M')} | 📅 {datetime.now().strftime('%d.%m.%Y')}
             """.strip()
             
-            await self.bot.send_message(
+            await bot.send_message(
                 chat_id=self.channel_id,
                 text=post_text,
                 parse_mode='HTML'
@@ -516,24 +515,35 @@ class WisdomBotWithButtons:
             self.handle_admin_buttons
         ))
         
+        # Настройка планировщика (JobQueue)
+        if application.job_queue:
+            job_queue = application.job_queue
+            
+            # Время публикации (МСК) -> UTC
+            # 9:00 MSK = 6:00 UTC
+            job_queue.run_daily(self.scheduled_post_job, time=datetime.strptime("06:00", "%H:%M").time())
+            # 21:00 MSK = 18:00 UTC
+            job_queue.run_daily(self.scheduled_post_job, time=datetime.strptime("18:00", "%H:%M").time())
+            
+            print("⏰ Планировщик настроен (JobQueue)")
+        
         # Запуск
-        print(f"🚀 Бот запущен! @{self.bot.username}")
+        print(f"🚀 Бот запускается...")
         print(f"👤 Админ: {self.admin_id}")
         print(f"📢 Канал: {self.channel_id}")
         
         application.run_polling(allowed_updates=Update.ALL_TYPES)
     
-    # ==================== АВТОМАТИЧЕСКАЯ ПУБЛИКАЦИЯ ====================
+    # ==================== АВТОМАТИЧЕСКАЯ ПУБЛИКАЦИЯ (JobQueue) ====================
     
-    def run_scheduler(self):
-        """Запускает планировщик для автоматической публикации"""
-        def scheduled_post():
-            try:
-                quote = self.db.get_next_quote()
-                if not quote:
-                    return
-                
-                post_text = f"""
+    async def scheduled_post_job(self, context: ContextTypes.DEFAULT_TYPE):
+        """Задача для автоматической публикации"""
+        try:
+            quote = self.db.get_next_quote()
+            if not quote:
+                return
+            
+            post_text = f"""
 💬 <b>Цитата дня</b>
 
 «{quote['text']}»
@@ -543,338 +553,30 @@ class WisdomBotWithButtons:
 #{quote['category']} #ЦитатаДня #Мудрость
 
 🕰 {datetime.now().strftime('%H:%M')} | 📅 {datetime.now().strftime('%d.%m.%Y')}
-                """.strip()
-                
-                self.bot.send_message(
-                    chat_id=self.channel_id,
-                    text=post_text,
-                    parse_mode='HTML'
-                )
-                
-                logger.info(f"Автопубликация: {quote['id']}")
-                
-                # Уведомление админу
-                self.bot.send_message(
-                    chat_id=self.admin_id,
-                    text=f"✅ Опубликована цитата #{quote['id']}"
-                )
-                
-            except Exception as e:
-                logger.error(f"Ошибка автопубликации: {e}")
-        
-        # Настраиваем расписание (9:00 и 21:00 по МСК)
-        schedule.every().day.at("06:00").do(scheduled_post)  # 9:00 МСК
-        schedule.every().day.at("18:00").do(scheduled_post)  # 21:00 МСК
-        
-        # Тестовая публикация каждые 6 часов
-        schedule.every(6).hours.do(scheduled_post)
-        
-        print("⏰ Планировщик запущен")
-        
-        while True:
-            schedule.run_pending()
-            time.sleep(60)
-
-
-# В bot.py добавляем новые команды и обработчики
-
-class WisdomBotWithAI:
-    # ... существующий код ...
-    
-    # ==================== AI КОМАНДЫ ====================
-    
-    async def ai_quote_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Генерация уникальной AI-цитаты"""
-        user_id = update.effective_user.id
-        
-        # Показываем "печатает..."
-        await update.message.reply_chat_action('typing')
-        
-        # Генерируем цитату с объяснением
-        quote_data = deepseek_gen.generate_quote_with_explanation()
-        
-        if quote_data:
-            # Форматируем ответ
-            response = f"""
-🤖 *Сгенерировано ИИ*
-
-💬 *Цитата:*
-"{quote_data['quote']}"
-
-👤 *Автор:* {quote_data.get('author', 'Искусственный интеллект')}
-
-📝 *Объяснение:*
-{quote_data.get('explanation', 'Мудрость для повседневной жизни.')}
-
-🏷️ *Теги:* #{' #'.join(quote_data.get('tags', ['ai', 'генерация']))}
             """.strip()
             
-            # Кнопки для AI-цитаты
-            keyboard = [
-                [
-                    InlineKeyboardButton("🔄 Сгенерировать еще", callback_data="generate_another"),
-                    InlineKeyboardButton("💾 Сохранить в базу", callback_data=f"save_ai_quote")
-                ],
-                [
-                    InlineKeyboardButton("📊 AI статистика", callback_data="ai_stats"),
-                    InlineKeyboardButton("🏠 В меню", callback_data="back_to_main")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await update.message.reply_text(
-                response,
-                parse_mode='Markdown',
-                reply_markup=reply_markup
+            # Используем context.bot
+            await context.bot.send_message(
+                chat_id=self.channel_id,
+                text=post_text,
+                parse_mode='HTML'
             )
             
-            # Сохраняем во временное хранилище для возможного сохранения
-            context.user_data['last_ai_quote'] = quote_data
+            logger.info(f"Автопубликация: {quote['id']}")
             
-        else:
-            await update.message.reply_text(
-                "😔 Не удалось сгенерировать цитату. Попробуйте позже.",
-                reply_markup=get_main_keyboard()
-            )
-    
-    async def daily_wisdom_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Мудрость дня с AI"""
-        await update.message.reply_chat_action('typing')
-        
-        wisdom_data = deepseek_gen.generate_daily_wisdom()
-        
-        response = f"""
-✨ *МУДРОСТЬ ДНЯ* ✨
-
-*Дата:* {datetime.now().strftime('%d.%m.%Y')}
-*День недели:* {datetime.now().strftime('%A')}
-
-{wisdom_data.get('emoji', '💡')} *Цитата:*
-"{wisdom_data.get('quote', wisdom_data.get('text', '...'))}"
-
-🔍 *Разбор:*
-{wisdom_data.get('analysis', wisdom_data.get('explanation', 'Подумайте над этим сегодня.'))}
-
-✅ *Практическое задание на сегодня:*
-{wisdom_data.get('task', 'Примените эту мудрость в одном из сегодняшних дел.')}
-
-🎯 *Ключевая мысль:*
-{wisdom_data.get('key_thought', 'Каждый день — возможность для роста.')}
-
-🤖 *Сгенерировано нейросетью DeepSeek*
-            """.strip()
-        
-        await update.message.reply_text(
-            response,
-            parse_mode='Markdown',
-            reply_markup=get_main_keyboard()
-        )
-    
-    async def personalized_quote_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Персонализированная цитата"""
-        user = update.effective_user
-        
-        await update.message.reply_text(
-            "Как вы себя чувствуете сегодня? (например: усталый, вдохновленный, сомневаюсь, радостный)",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        
-        # Устанавливаем состояние для ожидания настроения
-        context.user_data['awaiting_mood'] = True
-    
-    # ==================== ОБРАБОТЧИК AI КНОПОК ====================
-    
-    async def handle_ai_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка AI-кнопок"""
-        query = update.callback_query
-        await query.answer()
-        
-        data = query.data
-        
-        if data == "generate_another":
-            await self.ai_quote_command_with_message(query, context)
-        
-        elif data == "save_ai_quote":
-            await self.save_ai_quote_to_db(query, context)
-        
-        elif data == "ai_stats":
-            await self.show_ai_stats(query, context)
-    
-    async def ai_quote_command_with_message(self, query, context):
-        """Генерация AI-цитаты для callback"""
-        await query.edit_message_text("🔄 Генерирую новую цитату...")
-        
-        quote_data = deepseek_gen.generate_quote_with_explanation()
-        
-        if quote_data:
-            response = f"""
-🤖 *Новая AI-цитата:*
-
-"{quote_data['quote']}"
-
-— {quote_data.get('author', 'ИИ')}
-
-💡 {quote_data.get('explanation', '')}
-            """.strip()
-            
-            keyboard = [
-                [
-                    InlineKeyboardButton("🔄 Еще", callback_data="generate_another"),
-                    InlineKeyboardButton("💾 Сохранить", callback_data="save_ai_quote")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await query.edit_message_text(
-                response,
-                parse_mode='Markdown',
-                reply_markup=reply_markup
+            # Уведомление админу
+            await context.bot.send_message(
+                chat_id=self.admin_id,
+                text=f"✅ Опубликована цитата #{quote['id']}"
             )
             
-            context.user_data['last_ai_quote'] = quote_data
-    
-    async def save_ai_quote_to_db(self, query, context):
-        """Сохранение AI-цитаты в базу"""
-        quote_data = context.user_data.get('last_ai_quote')
-        
-        if not quote_data:
-            await query.answer("❌ Нет цитаты для сохранения", show_alert=True)
-            return
-        
-        db = QuoteDatabase()
-        
-        cursor = db.conn.cursor()
-        cursor.execute('''
-            INSERT INTO quotes (text, author, category, tags, source, ai_model)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (
-            quote_data['quote'],
-            quote_data.get('author', 'AI Generator'),
-            quote_data.get('category', 'ai_generated'),
-            json.dumps(quote_data.get('tags', ['ai'])),
-            'ai',
-            'deepseek-chat'
-        ))
-        
-        db.conn.commit()
-        quote_id = cursor.lastrowid
-        
-        await query.answer(f"✅ Цитата сохранена с ID: {quote_id}", show_alert=True)
-        
-        # Обновляем сообщение
-        await query.edit_message_text(
-            f"💾 *Цитата сохранена в базу!*\n\nID: `{quote_id}`\n\nТеперь она будет доступна в общем ротации.",
-            parse_mode='Markdown'
-        )
-    
-    async def show_ai_stats(self, query, context):
-        """Показать статистику AI"""
-        db = QuoteDatabase()
-        stats = db.get_ai_generation_stats()
-        
-        status = "🟢 Включен" if stats['ai_enabled'] else "🔴 Выключен"
-        
-        response = f"""
-📊 *Статистика AI-генерации*
+        except Exception as e:
+            logger.error(f"Ошибка автопубликации: {e}")
 
-{status}
-
-📈 *Всего AI-цитат:* {stats['total_ai_quotes']}
-📅 *Сегодня сгенерировано:* {stats['today_ai_quotes']}
-🤖 *Модели:* {stats['ai_models_used']}
-
-💡 *Использование:*
-• AI включается автоматически, когда заканчиваются ручные цитаты
-• Можно генерировать цитаты по запросу командой /ai
-• Все AI-цитаты сохраняются в общую базу
-            """.strip()
-        
-        await query.edit_message_text(
-            response,
-            parse_mode='Markdown',
-            reply_markup=get_main_keyboard()
-        )
-    
-    # ==================== ОБНОВЛЯЕМ ГЛАВНОЕ МЕНЮ ====================
-    
-    def get_main_keyboard_with_ai(self):
-        """Основная клавиатура с AI кнопкой"""
-        keyboard = [
-            [KeyboardButton("🎲 Случайная цитата")],
-            [KeyboardButton("🤖 Сгенерировать AI"), KeyboardButton("✨ Мудрость дня")],
-            [KeyboardButton("📚 По категориям"), KeyboardButton("🔍 Поиск")],
-            [KeyboardButton("📊 Статистика"), KeyboardButton("ℹ️ Помощь")]
-        ]
-        return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    
-    async def handle_ai_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка кнопки AI"""
-        await self.ai_quote_command(update, context)
-    
-    async def handle_daily_wisdom_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка кнопки мудрости дня"""
-        await self.daily_wisdom_command(update, context)
-    
-    # ==================== ОБНОВЛЯЕМ АВТОПУБЛИКАЦИЮ ====================
-    
-    def run_scheduler_with_ai(self):
-        """Автопубликация с AI"""
-        def scheduled_post():
-            try:
-                db = QuoteDatabase()
-                
-                # Используем метод с AI фолбэком
-                quote_data = db.get_next_quote_with_ai_fallback()
-                
-                if not quote_data:
-                    return
-                
-                # Определяем источник
-                source_emoji = "🤖" if quote_data.get('source') == 'ai' else "📚"
-                source_text = "(сгенерировано ИИ)" if quote_data.get('source') == 'ai' else ""
-                
-                post_text = f"""
-{source_emoji} *Цитата дня* {source_text}
-
-«{quote_data['text']}»
-
-— *{quote_data['author']}*
-
-#{quote_data.get('category', 'мудрость').replace(' ', '')} #ЦитатаДня
-
-🕰 {datetime.now().strftime('%H:%M')} | 📅 {datetime.now().strftime('%d.%m.%Y')}
-                """.strip()
-                
-                self.bot.send_message(
-                    chat_id=self.channel_id,
-                    text=post_text,
-                    parse_mode='Markdown'
-                )
-                
-                logger.info(f"Автопубликация {'AI' if quote_data.get('source') == 'ai' else 'ручная'}: {quote_data.get('id', 'new')}")
-                
-            except Exception as e:
-                logger.error(f"Ошибка автопубликации: {e}")
-        
-        # Расписание
-        schedule.every().day.at("06:00").do(scheduled_post)
-        schedule.every().day.at("18:00").do(scheduled_post)
-        
-        print("🤖 AI-планировщик запущен")
-        
-        while True:
-            schedule.run_pending()
-            time.sleep(60)
 
 def main():
     """Главная функция запуска"""
     bot = WisdomBotWithButtons()
-    
-    # Запускаем планировщик в отдельном потоке
-    scheduler_thread = threading.Thread(target=bot.run_scheduler, daemon=True)
-    scheduler_thread.start()
-    
-    # Запускаем самого бота
     bot.run_bot()
 
 if __name__ == "__main__":
