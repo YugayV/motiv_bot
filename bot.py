@@ -123,6 +123,12 @@ class WisdomBotWithButtons:
         # Получаем случайную цитату
         quote = self.db.get_random_quote_for_button()
         
+        # Если цитат нет, пробуем сгенерировать через AI
+        if not quote:
+            await update.message.reply_chat_action('typing')
+            # Генерируем новую
+            quote = self.db.generate_and_save_ai_quote()
+        
         if quote:
             # Форматируем ответ
             response = self.format_quote_response(quote)
@@ -138,7 +144,7 @@ class WisdomBotWithButtons:
             logger.info(f"Пользователь {user_id} запросил случайную цитату: {quote['id']}")
         else:
             await update.message.reply_text(
-                "😔 В базе пока нет цитат. Попробуйте позже!",
+                "😔 Не удалось найти или сгенерировать цитату. Попробуйте позже!",
                 reply_markup=get_main_keyboard()
             )
     
