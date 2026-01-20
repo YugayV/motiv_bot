@@ -116,6 +116,13 @@ docker-compose restart
 docker-compose up -d --build
 ```
 
+### 📜 Convenience Scripts (Windows)
+
+Use these PowerShell scripts for managing the bot:
+
+- `.\rebuild.ps1` - Rebuilds and restarts the container (recommended after updates)
+- `.\run_local.ps1` - Runs the bot locally (requires installed dependencies)
+
 ## 📊 База данных
 
 Бот использует SQLite базу данных `quotes.db` для хранения:

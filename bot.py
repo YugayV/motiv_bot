@@ -458,7 +458,7 @@ class WisdomBotWithButtons:
     async def post_to_channel_manual(self, bot: Bot):
         """Ручная публикация в канал (для админа)"""
         try:
-            quote = self.db.get_next_quote()
+            quote = self.db.get_next_quote_with_ai_fallback()
             if not quote:
                 return False
             
@@ -539,7 +539,7 @@ class WisdomBotWithButtons:
     async def scheduled_post_job(self, context: ContextTypes.DEFAULT_TYPE):
         """Задача для автоматической публикации"""
         try:
-            quote = self.db.get_next_quote()
+            quote = self.db.get_next_quote_with_ai_fallback()
             if not quote:
                 return
             
