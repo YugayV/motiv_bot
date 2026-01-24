@@ -3,7 +3,7 @@ import logging
 import asyncio
 
 from datetime import datetime
-from telegram import Update, Bot
+from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, 
     CommandHandler, 
@@ -323,6 +323,19 @@ class WisdomBotWithButtons:
                 reply_markup=get_main_keyboard()
             )
         
+        # Обработка подтверждения публикации
+        elif data == 'confirm_post':
+            await self.execute_post(update, context)
+            
+        elif data == 'cancel_post':
+            if 'pending_post' in context.user_data:
+                del context.user_data['pending_post']
+            await query.edit_message_caption("❌ Публикация отменена")
+            
+        elif data == 'retry_post':
+            await query.delete_message()
+            await self.start_manual_post_flow(update, context)
+
         # Поиск по автору
         elif data == 'search_author':
             await query.edit_message_text(
@@ -448,6 +461,108 @@ class WisdomBotWithButtons:
         elif text == "🏠 В главное меню":
             await self.start_command(update, context)
     
+    async def start_manual_post_flow(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Начало процесса ручной публикации с превью"""
+        try:
+            # Получаем цитату
+            quote = self.db.get_next_quote_with_ai_fallback()
+            if not quote:
+                await update.message.reply_text("❌ Не удалось получить цитату.")
+                return
+
+            await update.message.reply_text("🎨 Генерирую превью...")
+            
+            # Генерация изображения
+            image_path = create_quote_image(
+                quote['text'], 
+                quote['author'], 
+                quote['category']
+            )
+            
+            # Сохраняем данные в context.user_data для последующего использования
+            context.user_data['pending_post'] = {
+                'quote': quote,
+                'image_path': image_path
+            }
+            
+            # Клавиатура подтверждения
+            keyboard = [
+                [
+                    InlineKeyboardButton("✅ Опубликовать", callback_data="confirm_post"),
+                    InlineKeyboardButton("❌ Отмена", callback_data="cancel_post")
+                ],
+                [InlineKeyboardButton("🔄 Другую цитату", callback_data="retry_post")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Отправляем превью
+            caption = f"📝 *Превью публикации:*\n\n«{quote['text']}»\n— {quote['author']}\n\n#{quote['category']}"
+            
+            await update.message.reply_photo(
+                photo=open(image_path, 'rb'),
+                caption=caption,
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in manual post flow: {e}")
+            await update.message.reply_text(f"❌ Ошибка: {e}")
+
+    async def execute_post(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Выполнение публикации после подтверждения"""
+        data = context.user_data.get('pending_post')
+        if not data:
+            await update.callback_query.answer("⚠️ Данные устарели", show_alert=True)
+            return
+            
+        quote = data['quote']
+        image_path = data['image_path']
+        
+        try:
+            # 1. Публикация в Telegram канал (ФОТО)
+            post_text = f"""
+💬 <b>Цитата дня</b>
+
+«{quote['text']}»
+
+— <i>{quote['author']}</i>
+
+#{quote['category']} #ЦитатаДня #Мудрость
+
+🕰 {datetime.now().strftime('%H:%M')} | 📅 {datetime.now().strftime('%d.%m.%Y')}
+            """.strip()
+            
+            # Отправляем фото в канал
+            await context.bot.send_photo(
+                chat_id=self.channel_id,
+                photo=open(image_path, 'rb'),
+                caption=post_text,
+                parse_mode='HTML'
+            )
+            
+            # 2. Instagram
+            await self.publish_to_instagram(quote)
+            
+            # 3. TikTok (видео генерируется внутри publish_to_instagram_sync, можно вынести, но оставим там)
+            # Примечание: publish_to_instagram сейчас делает и то и то.
+            
+            # Логируем
+            logger.info(f"Ручная публикация подтверждена: {quote['id']}")
+            
+            await update.callback_query.edit_message_caption(
+                caption=f"{update.callback_query.message.caption}\n\n✅ *ОПУБЛИКОВАНО*",
+                parse_mode='Markdown'
+            )
+            
+            # Очистка
+            if 'pending_post' in context.user_data:
+                del context.user_data['pending_post']
+                
+        except Exception as e:
+            logger.error(f"Error executing post: {e}")
+            await update.callback_query.answer(f"❌ Ошибка: {e}", show_alert=True)
+
     # ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
     
     def format_quote_response(self, quote: dict, show_category: bool = False) -> str:
