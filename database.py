@@ -1,5 +1,6 @@
 import sqlite3
 import json
+import difflib
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from deepseek_generator import deepseek_gen
@@ -172,16 +173,44 @@ class QuoteDatabase:
         
         return None
     
+    def is_quote_similar(self, text: str, threshold: float = 0.85) -> bool:
+        """Check if similar quote exists in database"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT text FROM quotes")
+        existing_quotes = [row['text'] for row in cursor.fetchall()]
+        
+        for existing in existing_quotes:
+            # Check exact match first (normalized)
+            if text.strip().lower() == existing.strip().lower():
+                return True
+                
+            # Check similarity
+            ratio = difflib.SequenceMatcher(None, text, existing).ratio()
+            if ratio > threshold:
+                return True
+                
+        return False
+
     def generate_and_save_ai_quote(self, topic: str = None, style: str = None) -> Optional[Dict]:
-        """Generate and save AI quote"""
+        """Generate and save AI quote (with duplicate check)"""
         if not deepseek_gen.enabled:
             print("⚠️  AI generation disabled")
             return None
         
-        # Generate quote
-        quote_data = deepseek_gen.generate_motivational_quote(topic, style)
+        max_retries = 3
         
-        if quote_data:
+        for attempt in range(max_retries):
+            # Generate quote
+            quote_data = deepseek_gen.generate_motivational_quote(topic, style)
+            
+            if not quote_data:
+                continue
+                
+            # Check for duplicates
+            if self.is_quote_similar(quote_data['text']):
+                print(f"♻️ Generated duplicate/similar quote, retrying... ({attempt + 1}/{max_retries})")
+                continue
+            
             # Save to database
             cursor = self.conn.cursor()
             cursor.execute('''
@@ -205,6 +234,7 @@ class QuoteDatabase:
             
             return quote_data
         
+        print("❌ Failed to generate unique quote after retries")
         return None
     
     def get_ai_generation_stats(self) -> Dict:

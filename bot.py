@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 
 from datetime import datetime
 from telegram import Update, Bot
@@ -26,6 +27,8 @@ from keyboards import (
 from deepseek_generator import deepseek_gen
 
 from database import QuoteDatabase
+from image_generator import create_quote_image
+from instagram_uploader import InstagramUploader
 
 # Загрузка переменных
 load_dotenv()
@@ -49,6 +52,7 @@ class WisdomBotWithButtons:
         # self.bot удален, так как Application создает своего бота
         # self.bot = Bot(token=self.token)
         self.db = QuoteDatabase()
+        self.instagram = InstagramUploader()
         
         # Состояния пользователей (для поиска)
         self.user_states = {}
@@ -472,6 +476,39 @@ class WisdomBotWithButtons:
         
         return response
     
+    def _publish_to_instagram_sync(self, quote: dict):
+        """Синхронная функция публикации в Instagram"""
+        try:
+            # Генерация изображения
+            image_path = create_quote_image(
+                quote['text'], 
+                quote['author'], 
+                quote['category']
+            )
+            
+            # Подпись
+            caption = f"«{quote['text']}»\n\n— {quote['author']}\n\n#{quote['category']} #WisdomDaily #Motivation"
+            
+            # Загрузка
+            success = self.instagram.upload_photo(image_path, caption)
+            
+            # Удаление временного файла
+            if os.path.exists(image_path):
+                os.remove(image_path)
+                
+            if success:
+                logger.info(f"Instagram publication successful: {quote['id']}")
+            else:
+                logger.warning(f"Instagram publication failed: {quote['id']}")
+                
+        except Exception as e:
+            logger.error(f"Error publishing to Instagram: {e}")
+
+    async def publish_to_instagram(self, quote: dict):
+        """Асинхронная обертка для публикации в Instagram"""
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._publish_to_instagram_sync, quote)
+
     async def post_to_channel_manual(self, bot: Bot):
         """Ручная публикация в канал (для админа)"""
         try:
@@ -496,6 +533,9 @@ class WisdomBotWithButtons:
                 text=post_text,
                 parse_mode='HTML'
             )
+            
+            # Публикация в Instagram
+            await self.publish_to_instagram(quote)
             
             logger.info(f"Ручная публикация: {quote['id']}")
             return True
@@ -578,6 +618,9 @@ class WisdomBotWithButtons:
                 text=post_text,
                 parse_mode='HTML'
             )
+            
+            # Публикация в Instagram
+            await self.publish_to_instagram(quote)
             
             logger.info(f"Автопубликация: {quote['id']}")
             
