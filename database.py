@@ -58,8 +58,41 @@ class QuoteDatabase:
                 FOREIGN KEY (quote_id) REFERENCES quotes(id)
             )
         ''')
+
+        # Interaction history (for Instagram/TikTok)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS interactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                platform TEXT NOT NULL,
+                interaction_type TEXT NOT NULL, -- 'comment_reply', 'dm_reply', 'follow'
+                target_id TEXT NOT NULL, -- comment_id, user_id, etc.
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(platform, interaction_type, target_id)
+            )
+        ''')
         
         self.conn.commit()
+    
+    def is_interaction_processed(self, platform: str, interaction_type: str, target_id: str) -> bool:
+        """Check if interaction was already processed"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT 1 FROM interactions 
+            WHERE platform = ? AND interaction_type = ? AND target_id = ?
+        ''', (platform, interaction_type, str(target_id)))
+        return bool(cursor.fetchone())
+
+    def log_interaction(self, platform: str, interaction_type: str, target_id: str):
+        """Log processed interaction"""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute('''
+                INSERT INTO interactions (platform, interaction_type, target_id)
+                VALUES (?, ?, ?)
+            ''', (platform, interaction_type, str(target_id)))
+            self.conn.commit()
+        except sqlite3.IntegrityError:
+            pass # Already logged
     
     def get_random_quote_for_button(self) -> Optional[Dict]:
         """Get a random quote for button press"""

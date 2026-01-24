@@ -29,6 +29,8 @@ from deepseek_generator import deepseek_gen
 from database import QuoteDatabase
 from image_generator import create_quote_image
 from instagram_uploader import InstagramUploader
+from video_generator import create_quote_video
+from tiktok_uploader import TikTokUploader
 
 # Загрузка переменных
 load_dotenv()
@@ -53,6 +55,7 @@ class WisdomBotWithButtons:
         # self.bot = Bot(token=self.token)
         self.db = QuoteDatabase()
         self.instagram = InstagramUploader()
+        self.tiktok = TikTokUploader()
         
         # Состояния пользователей (для поиска)
         self.user_states = {}
@@ -431,17 +434,7 @@ class WisdomBotWithButtons:
         text = update.message.text
         
         if text == "📤 Опубликовать сейчас":
-            success = await self.post_to_channel_manual(context.bot)
-            if success:
-                await update.message.reply_text(
-                    "✅ Цитата опубликована в канале!",
-                    reply_markup=get_admin_keyboard()
-                )
-            else:
-                await update.message.reply_text(
-                    "❌ Ошибка публикации!",
-                    reply_markup=get_admin_keyboard()
-                )
+            await self.start_manual_post_flow(update, context)
         
         elif text == "📥 Добавить цитату":
             await update.message.reply_text(
@@ -477,7 +470,7 @@ class WisdomBotWithButtons:
         return response
     
     def _publish_to_instagram_sync(self, quote: dict):
-        """Синхронная функция публикации в Instagram"""
+        """Синхронная функция публикации в Instagram и TikTok"""
         try:
             # Генерация изображения
             image_path = create_quote_image(
@@ -489,20 +482,33 @@ class WisdomBotWithButtons:
             # Подпись
             caption = f"«{quote['text']}»\n\n— {quote['author']}\n\n#{quote['category']} #WisdomDaily #Motivation"
             
-            # Загрузка
-            success = self.instagram.upload_photo(image_path, caption)
+            # Загрузка в Instagram
+            success_insta = self.instagram.upload_photo(image_path, caption)
             
-            # Удаление временного файла
-            if os.path.exists(image_path):
-                os.remove(image_path)
-                
-            if success:
+            if success_insta:
                 logger.info(f"Instagram publication successful: {quote['id']}")
             else:
                 logger.warning(f"Instagram publication failed: {quote['id']}")
+            
+            # TikTok (генерация видео)
+            try:
+                video_path = create_quote_video(image_path)
+                if video_path:
+                    success_tiktok = self.tiktok.upload_video(video_path, caption)
+                    if success_tiktok:
+                        logger.info(f"TikTok publication successful: {quote['id']}")
+                    
+                    if os.path.exists(video_path):
+                        os.remove(video_path)
+            except Exception as e:
+                logger.error(f"TikTok processing failed: {e}")
+                
+            # Удаление временного файла изображения
+            if os.path.exists(image_path):
+                os.remove(image_path)
                 
         except Exception as e:
-            logger.error(f"Error publishing to Instagram: {e}")
+            logger.error(f"Error publishing to social media: {e}")
 
     async def publish_to_instagram(self, quote: dict):
         """Асинхронная обертка для публикации в Instagram"""
@@ -544,6 +550,13 @@ class WisdomBotWithButtons:
             logger.error(f"Ошибка ручной публикации: {e}")
             return False
     
+    # ==================== ЗАДАЧИ ВЗАИМОДЕЙСТВИЯ ====================
+    
+    async def interactions_job(self, context: ContextTypes.DEFAULT_TYPE):
+        """Задача для обработки комментариев и подписок"""
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.instagram.process_interactions)
+
     # ==================== ЗАПУСК БОТА ====================
     
     def run_bot(self):
@@ -581,6 +594,9 @@ class WisdomBotWithButtons:
             job_queue.run_daily(self.scheduled_post_job, time=datetime.strptime("13:00", "%H:%M").time())
             # 21:00 MSK = 18:00 UTC
             job_queue.run_daily(self.scheduled_post_job, time=datetime.strptime("16:00", "%H:%M").time())
+            
+            # Задача обработки взаимодействий (каждые 30 минут)
+            job_queue.run_repeating(self.interactions_job, interval=1800, first=60)
             
             print("⏰ Планировщик настроен (JobQueue)")
         

@@ -400,5 +400,51 @@ class DeepSeekGenerator:
             'generated_at': datetime.now().isoformat()
         }
 
-# Глобальный экземпляр
+    def generate_interaction_reply(self, message_text: str, context_type: str = "comment") -> str:
+        """Generates a reply for a comment or DM"""
+        if not self.enabled:
+            return "Спасибо!"
+            
+        system_prompt = (
+            "Ты - мудрый и дружелюбный бот, который публикует мотивационные цитаты. "
+            "Твоя задача - отвечать на комментарии или сообщения пользователей. "
+            "Ответ должен быть кратким (не более 15 слов), вежливым и вдохновляющим. "
+            "Используй эмодзи. Не используй хештеги."
+        )
+        
+        user_prompt = f"Ответь на {context_type}: \"{message_text}\""
+        
+        try:
+            headers = {
+                'Authorization': f'Bearer {self.api_key}',
+                'Content-Type': 'application/json'
+            }
+            
+            response = requests.post(
+                self.api_url,
+                headers=headers,
+                json={
+                    "model": "deepseek-chat",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "temperature": 0.7
+                },
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                reply = result['choices'][0]['message']['content'].strip()
+                return reply
+            else:
+                print(f"DeepSeek API Error (Interaction): {response.status_code}")
+                return "Спасибо за ваш отклик! 🙏"
+                
+        except Exception as e:
+            print(f"Error generating interaction reply: {e}")
+            return "Спасибо! ✨"
+
+# Создаем глобальный экземпляр
 deepseek_gen = DeepSeekGenerator()
