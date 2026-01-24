@@ -216,7 +216,7 @@ class WisdomBotWithButtons:
 • Ручных запросов: {stats['manual_requests']}
 
 ⏰ *Следующая публикация:*
-• В канале: 9:00 и 21:00 (МСК)
+• В канале: 13:00 и 16:00 (МСК)
         """
         
         await update.message.reply_text(
@@ -538,9 +538,9 @@ class WisdomBotWithButtons:
             
             # Время публикации (МСК) -> UTC
             # 9:00 MSK = 6:00 UTC
-            job_queue.run_daily(self.scheduled_post_job, time=datetime.strptime("06:00", "%H:%M").time())
+            job_queue.run_daily(self.scheduled_post_job, time=datetime.strptime("13:00", "%H:%M").time())
             # 21:00 MSK = 18:00 UTC
-            job_queue.run_daily(self.scheduled_post_job, time=datetime.strptime("18:00", "%H:%M").time())
+            job_queue.run_daily(self.scheduled_post_job, time=datetime.strptime("16:00", "%H:%M").time())
             
             print("⏰ Планировщик настроен (JobQueue)")
         
