@@ -95,15 +95,25 @@ class QuoteDatabase:
             pass # Already logged
     
     def get_random_quote_for_button(self) -> Optional[Dict]:
-        """Get a random quote for button press"""
+        """Get a random quote for button press and mark it as seen"""
         cursor = self.conn.cursor()
         cursor.execute('''
             SELECT * FROM quotes 
-            ORDER BY RANDOM()
+            ORDER BY last_used_at ASC, used_count ASC, RANDOM()
             LIMIT 1
         ''')
         row = cursor.fetchone()
-        return dict(row) if row else None
+        if row:
+            quote = dict(row)
+            # Update last_used_at but don't increment used_count for manual buttons
+            cursor.execute('''
+                UPDATE quotes 
+                SET last_used_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (quote['id'],))
+            self.conn.commit()
+            return quote
+        return None
     
     def get_quote_by_category(self, category: str) -> Optional[Dict]:
         """Get a random quote from specific category"""
@@ -183,28 +193,35 @@ class QuoteDatabase:
         }
     
     def get_next_quote(self) -> Optional[Dict]:
-        """Get next quote for scheduled posting"""
+        """Get next quote for scheduled posting (least used, oldest first)"""
         cursor = self.conn.cursor()
+        
+        # Сначала ищем те, которые вообще не использовались, 
+        # затем те, которые использовались давно (не сегодня)
         cursor.execute('''
             SELECT * FROM quotes 
-            WHERE date(last_used_at) != date('now') OR last_used_at IS NULL
-            ORDER BY used_count ASC, RANDOM()
+            WHERE (date(last_used_at) != date('now') OR last_used_at IS NULL)
+            ORDER BY used_count ASC, last_used_at ASC, RANDOM()
             LIMIT 1
         ''')
         row = cursor.fetchone()
         
         if row:
             quote = dict(row)
-            # Mark as used
-            cursor.execute('''
-                UPDATE quotes 
-                SET used_count = used_count + 1, last_used_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            ''', (quote['id'],))
-            self.conn.commit()
+            self.mark_quote_as_used(quote['id'])
             return quote
         
         return None
+
+    def mark_quote_as_used(self, quote_id: int):
+        """Update used count and last used timestamp"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            UPDATE quotes 
+            SET used_count = used_count + 1, last_used_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (quote_id,))
+        self.conn.commit()
     
     def is_quote_similar(self, text: str, threshold: float = 0.85) -> bool:
         """Check if similar quote exists in database"""
@@ -301,17 +318,23 @@ class QuoteDatabase:
             quote_data = self.generate_and_save_ai_quote()
             
             if quote_data:
+                # generate_and_save_ai_quote already saved it, but we need to mark it as used
+                self.mark_quote_as_used(quote_data['id'])
                 return quote_data
             else:
-                # If AI failed, get any old quote
+                # If AI failed, get any old quote (least used)
                 cursor = self.conn.cursor()
                 cursor.execute('''
                     SELECT * FROM quotes 
-                    ORDER BY used_count ASC, RANDOM()
+                    ORDER BY used_count ASC, last_used_at ASC, RANDOM()
                     LIMIT 1
                 ''')
                 fallback = cursor.fetchone()
-                return dict(fallback) if fallback else None
+                if fallback:
+                    quote = dict(fallback)
+                    self.mark_quote_as_used(quote['id'])
+                    return quote
+                return None
         
         return quote
     
