@@ -731,6 +731,13 @@ class WisdomBotWithButtons:
             if not quote:
                 return
             
+            # Генерация изображения для поста
+            image_path = create_quote_image(
+                quote['text'], 
+                quote['author'], 
+                quote['category']
+            )
+            
             post_text = f"""
 💬 <b>Цитата дня</b>
 
@@ -743,14 +750,15 @@ class WisdomBotWithButtons:
 🕰 {datetime.now().strftime('%H:%M')} | 📅 {datetime.now().strftime('%d.%m.%Y')}
             """.strip()
             
-            # Используем context.bot
-            await context.bot.send_message(
+            # Отправляем фото в канал
+            await context.bot.send_photo(
                 chat_id=self.channel_id,
-                text=post_text,
+                photo=open(image_path, 'rb'),
+                caption=post_text,
                 parse_mode='HTML'
             )
             
-            # Публикация в Instagram
+            # Публикация в Instagram и TikTok
             await self.publish_to_instagram(quote)
             
             logger.info(f"Автопубликация: {quote['id']}")
@@ -758,9 +766,13 @@ class WisdomBotWithButtons:
             # Уведомление админу
             await context.bot.send_message(
                 chat_id=self.admin_id,
-                text=f"✅ Опубликована цитата #{quote['id']}"
+                text=f"✅ Опубликована цитата #{quote['id']} в канале и соцсетях"
             )
             
+            # Удаление временного файла
+            if os.path.exists(image_path):
+                os.remove(image_path)
+                
         except Exception as e:
             logger.error(f"Ошибка автопубликации: {e}")
 

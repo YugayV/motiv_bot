@@ -116,16 +116,26 @@ class QuoteDatabase:
         return None
     
     def get_quote_by_category(self, category: str) -> Optional[Dict]:
-        """Get a random quote from specific category"""
+        """Get a random quote from specific category and mark it as seen"""
         cursor = self.conn.cursor()
         cursor.execute('''
             SELECT * FROM quotes 
             WHERE category = ?
-            ORDER BY RANDOM()
+            ORDER BY last_used_at ASC, used_count ASC, RANDOM()
             LIMIT 1
         ''', (category,))
         row = cursor.fetchone()
-        return dict(row) if row else None
+        if row:
+            quote = dict(row)
+            # Update last_used_at but don't increment used_count for manual requests
+            cursor.execute('''
+                UPDATE quotes 
+                SET last_used_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (quote['id'],))
+            self.conn.commit()
+            return quote
+        return None
     
     def search_quotes(self, query: str, limit: int = 5) -> List[Dict]:
         """Search quotes by author or text"""
