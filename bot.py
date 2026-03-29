@@ -704,11 +704,11 @@ class WisdomBotWithButtons:
         if application.job_queue:
             job_queue = application.job_queue
             
-            # Время публикации (МСК) -> UTC
-            # 9:00 MSK = 6:00 UTC
-            job_queue.run_daily(self.scheduled_post_job, time=datetime.strptime("06:00", "%H:%M").time())
-            # 21:00 MSK = 18:00 UTC
-            job_queue.run_daily(self.scheduled_post_job, time=datetime.strptime("18:00", "%H:%M").time())
+            # Время публикации (МСК) -> UTC (сдвинуто на 8 часов вперед)
+            # 17:00 MSK = 14:00 UTC
+            job_queue.run_daily(self.scheduled_post_job, time=datetime.strptime("14:00", "%H:%M").time())
+            # 05:00 MSK = 02:00 UTC
+            job_queue.run_daily(self.scheduled_post_job, time=datetime.strptime("02:00", "%H:%M").time())
             
             # Задача обработки взаимодействий (каждые 30 минут)
             job_queue.run_repeating(self.interactions_job, interval=1800, first=60)
