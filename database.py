@@ -59,21 +59,6 @@ class QuoteDatabase:
             )
         ''')
 
-        # Trades table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS trades (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                symbol TEXT NOT NULL,
-                type TEXT NOT NULL, -- 'BUY', 'SELL'
-                price REAL NOT NULL,
-                amount REAL NOT NULL,
-                status TEXT DEFAULT 'OPEN', -- 'OPEN', 'CLOSED'
-                profit REAL DEFAULT 0,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                closed_at DATETIME
-            )
-        ''')
-
         # Interaction history (for Instagram/TikTok)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS interactions (
@@ -374,68 +359,7 @@ class QuoteDatabase:
         quote_id = cursor.lastrowid
         self.conn.commit()
         return quote_id
-
-    # ==================== TRADE METHODS ====================
-
-    def add_trade(self, symbol: str, trade_type: str, price: float, amount: float) -> int:
-        """Add a new trade"""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT INTO trades (symbol, type, price, amount)
-            VALUES (?, ?, ?, ?)
-        ''', (symbol.upper(), trade_type.upper(), price, amount))
-        self.conn.commit()
-        return cursor.lastrowid
-
-    def get_open_trades(self) -> List[Dict]:
-        """Get all open trades"""
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM trades WHERE status = 'OPEN' ORDER BY created_at DESC")
-        return [dict(row) for row in cursor.fetchall()]
-
-    def get_trade_stats(self) -> Dict:
-        """Get trading statistics"""
-        cursor = self.conn.cursor()
-        
-        cursor.execute("SELECT COUNT(*) as total FROM trades")
-        total = cursor.fetchone()['total']
-        
-        cursor.execute("SELECT COUNT(*) as open FROM trades WHERE status = 'OPEN'")
-        open_count = cursor.fetchone()['open']
-        
-        cursor.execute("SELECT SUM(profit) as total_profit FROM trades WHERE status = 'CLOSED'")
-        profit_row = cursor.fetchone()
-        total_profit = profit_row['total_profit'] if profit_row['total_profit'] else 0.0
-        
-        return {
-            'total_trades': total,
-            'open_trades': open_count,
-            'total_profit': total_profit
-        }
-
-    def close_trade(self, trade_id: int, close_price: float):
-        """Close an open trade and calculate profit"""
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM trades WHERE id = ?", (trade_id,))
-        trade = cursor.fetchone()
-        
-        if not trade:
-            return False
-            
-        profit = 0
-        if trade['type'] == 'BUY':
-            profit = (close_price - trade['price']) * trade['amount']
-        else:
-            profit = (trade['price'] - close_price) * trade['amount']
-            
-        cursor.execute('''
-            UPDATE trades 
-            SET status = 'CLOSED', profit = ?, closed_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (profit, trade_id))
-        self.conn.commit()
-        return True
-
+    
     def close(self):
         """Close database connection"""
         if self.conn:
